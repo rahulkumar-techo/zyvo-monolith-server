@@ -22,9 +22,11 @@ async function startServer(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   try {
-    await app.listen({ host: config.HOST, port: config.PORT });
-    app.log.info(`ZYVO API server listening on http://${config.HOST}:${config.PORT}`);
-    app.log.info(`Swagger documentation available at http://${config.HOST}:${config.PORT}/docs`);
+    const host = process.env.HOST || config.HOST || '0.0.0.0';
+    const port = Number(process.env.PORT) || config.PORT || 10000;
+    await app.listen({ host, port });
+    app.log.info(`ZYVO API server listening on http://${host}:${port}`);
+    app.log.info(`Swagger documentation available at http://${host}:${port}/docs`);
   } catch (err) {
     app.log.fatal({ err }, 'Failed to start server');
     process.exit(1);

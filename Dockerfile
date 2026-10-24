@@ -36,7 +36,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
-ENV PORT=3000
+ENV PORT=10000
 ENV JWT_ACCESS_SECRET=zyvo_super_secret_jwt_access_token_key_change_in_production
 
 # Copy workspace build artifacts and dependencies
@@ -47,9 +47,9 @@ RUN chown -R node:node /app
 
 USER node
 
-EXPOSE 3000
+EXPOSE 10000 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
+  CMD curl -f http://localhost:${PORT:-10000}/health || exit 1
 
 CMD ["node", "apps/api/dist/server.js"]

@@ -1,0 +1,20 @@
+{
+  "name": "zyvo",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @zyvo/database db:generate",
+    "db:migrate": "pnpm --filter @zyvo/database db:migrate",
+    "db:studio": "pnpm --filter @zyvo/database db:studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2"
+  }
+}

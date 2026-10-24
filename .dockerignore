@@ -1,0 +1,14 @@
+node_modules
+dist
+.turbo
+.git
+.gitignore
+.env
+.env.*
+*.log
+coverage
+.DS_Store
+.idea
+.vscode
+.system_generated
+infrastructure

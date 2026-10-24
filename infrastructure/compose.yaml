@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: zyvo_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zyvo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zyvo_password}
+      POSTGRES_DB: ${POSTGRES_DB:-zyvo_dev}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - zyvo_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zyvo_user} -d ${POSTGRES_DB:-zyvo_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: zyvo_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - zyvo_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 3s
+
+volumes:
+  zyvo_postgres_data:
+    name: zyvo_postgres_data
+  zyvo_redis_data:
+    name: zyvo_redis_data

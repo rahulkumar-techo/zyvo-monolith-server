@@ -22,7 +22,7 @@ async function startServer(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   try {
-    const host = process.env.HOST || config.HOST || '0.0.0.0';
+    const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : config.HOST;
     const port = Number(process.env.PORT) || config.PORT || 10000;
     await app.listen({ host, port });
     app.log.info(`ZYVO API server listening on http://${host}:${port}`);

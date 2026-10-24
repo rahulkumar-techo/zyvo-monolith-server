@@ -9,6 +9,7 @@
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "postinstall": "pnpm db:generate",
     "db:generate": "pnpm --filter @zyvo/database db:generate",
     "db:migrate": "pnpm --filter @zyvo/database db:migrate",
     "db:studio": "pnpm --filter @zyvo/database db:studio"

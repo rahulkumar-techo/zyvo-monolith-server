@@ -37,6 +37,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
+ENV JWT_ACCESS_SECRET=zyvo_super_secret_jwt_access_token_key_change_in_production
 
 # Copy workspace build artifacts and dependencies
 COPY --from=builder /app /app

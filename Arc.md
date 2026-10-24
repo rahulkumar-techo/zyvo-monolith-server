@@ -1,55 +1,135 @@
-#Scaling the ride lifecycle
-The most important part of ZYVO is not ordinary CRUD. It is the concurrent ride lifecycle.
+# ZYVO System Architecture & Concurrency Blueprint
 
-```mermid
+This document details the architectural foundation, high-concurrency ride lifecycle, real-time spatial dispatching, and data tier strategy powering the **ZYVO** ride-hailing backend.
 
+---
 
-flowchart TD
-    A[Passenger requests ride] --> B[Validate request]
-    B --> C[Create ride: REQUESTED]
-    C --> D[Publish outbox event]
-    D --> E[Dispatch worker]
-    E --> F[Find nearby available riders in Redis GEO]
-    F --> G[Rank eligible riders]
-    G --> H[Offer ride]
-    H --> I{Rider accepts?}
-    I -- No / timeout --> F
-    I -- Yes --> J[Atomic assignment transaction]
-    J --> K{Assignment succeeds?}
-    K -- No, already assigned --> F
-    K -- Yes --> L[Ride: ACCEPTED]
-    L --> M[Notify passenger and rider]
-    M --> N[Pickup and trip tracking]
-    N --> O[Ride: COMPLETED]
-    O --> P[Fare finalization and payment]
+## 1. Architectural Paradigm: Modular Monolith
 
+ZYVO is built as an evolutionary **Modular Monolith**. It runs as a single deployable Fastify application (`apps/api`) while maintaining strict boundaries across domain modules to prevent tight coupling.
 
+```mermaid
+graph TD
+    Client[Mobile & Web Clients] -->|HTTPS / WSS| API[Fastify Modular Monolith]
+    
+    subgraph "Domain Modules (apps/api/src/modules)"
+        Auth[Auth & Identity]
+        Rides[Ride Lifecycle Engine]
+        Dispatch[Spatial Dispatcher]
+        Pricing[Pricing Engine]
+        Payment[Payments & Wallets]
+    end
+
+    API --> Auth
+    API --> Rides
+    API --> Dispatch
+    API --> Pricing
+    API --> Payment
+
+    subgraph "Data & State Storage"
+        PG[(PostgreSQL Primary)]
+        Redis[(Redis Cache, GEO & PubSub)]
+    end
+
+    Rides --> PG
+    Dispatch --> Redis
+    Auth --> PG
+    Auth --> Redis
 ```
 
-A. Nearby rider matching
-Do not query millions of rider records in PostgreSQL every time a passenger requests a ride.
+### Core Tenets:
+- **Single Deployable Unit**: Zero inter-service network hops or RPC serialization overhead for internal transactions.
+- **Strict Boundary Decoupling**: Modules communicate via typed service interfaces or transactional domain events, avoiding direct cross-module database mutations.
+- **Future Extraction Readiness**: High-throughput domains (such as Real-Time Dispatch and Pricing) are designed so they can be isolated into dedicated microservices when throughput requirements dictate.
 
-Instead:
-- Store live rider coordinates and availability in Redis GEO.
-- Query nearby candidates using GEOSEARCH.
-- Filter candidates by online state, vehicle category, service area, and eligibility.
-- Rank a bounded candidate set using ETA, distance, and dispatch rules.
-- Revalidate the chosen rider in the database before committing the assignment.
-Redis GEO supports radius-based and bounding-box searches, distance ordering, and result limits.
+---
 
+## 2. The Concurrent Ride Lifecycle
 
+The critical technical challenge in ride-hailing is managing concurrent, high-frequency state transitions without race conditions.
 
-B. Race-safe ride assignment
-Suppose two passengers request rides at nearly the same time, and the same rider receives both offers.
+```mermaid
+flowchart TD
+    A[Passenger requests ride] --> B[Validate pickup & destination]
+    B --> C[Create ride state: REQUESTED]
+    C --> D[Transactional Outbox / Dispatch Trigger]
+    D --> E[Spatial Dispatch Engine]
+    E --> F[Query candidate riders via Redis GEO]
+    F --> G[Filter & Rank eligible riders]
+    G --> H[Offer ride to candidate driver]
+    H --> I{Driver accepts offer?}
+    I -- Timeout or Declined --> F
+    I -- Accepted --> J[Atomic assignment transaction]
+    J --> K{Double-booking check}
+    K -- Conflict: already assigned --> F
+    K -- Success --> L[Ride state: ACCEPTED]
+    L --> M[Notify passenger & driver via Realtime Gateway]
+    M --> N[Pickup & Trip Tracking: IN_PROGRESS]
+    N --> O[Ride state: COMPLETED]
+    O --> P[Fare finalization & wallet/payment settlement]
+```
 
-Your assignment operation must ensure that a rider cannot accept two conflicting active trips. Use an atomic conditional update, suitable database constraints, or a transaction with appropriate row locking.
+---
 
+## 3. Real-Time Spatial Dispatch Pipeline
 
-C. Live rider location
-Treat location updates as a separate high-volume data path.
-- Receive location updates through the real-time gateway.
-- Validate coordinates and authenticated rider identity.
-- Update Redis GEO for current rider positions.
-- Publish relevant trip updates to authorized subscribers.
-- Persist periodic location samples only when required for trip history, disputes, or compliance.
-Do not insert every GPS ping into PostgreSQL by default. That can turn a high-frequency stream into unnecessary write amplification and storage growth.
+### A. Nearby Driver Matching (Redis GEO)
+Querying millions of driver rows in PostgreSQL on every ride request causes catastrophic database CPU exhaustion. ZYVO delegates real-time spatial lookup to Redis:
+
+1. **Active Location Ingestion**:
+   - Active drivers periodically push lightweight GPS coordinates to the gateway.
+   - Coordinates are saved into a Redis Geospatial Index (`GEOADD drivers:locations <lng> <lat> <driverId>`).
+   - Driver availability statuses are maintained using key expiry and atomic bitmasks.
+2. **Radial Candidate Discovery**:
+   - Search nearby candidates using `GEOSEARCH drivers:locations FROMMEMBER / FROMLONLAT BYRADIUS <distance> km WITHCOORD WITHDIST`.
+   - Results are filtered in-memory by vehicle category, driver compliance status, and active shift state.
+3. **Multi-Factor Ranking**:
+   - A bounded set of candidate drivers (e.g., top 10) is ranked using calculated ETA, historical acceptance rate, and directional heading.
+4. **Targeted Dispatch Dispatching**:
+   - Offers are dispatched sequentially or in batches with fixed response windows (e.g., 15 seconds).
+
+---
+
+## 4. Race-Safe Ride Assignment
+
+A critical failure mode in ride dispatch is **double-booking** (e.g. two concurrent passenger requests assigned to the same driver, or multiple drivers accepting the same ride).
+
+ZYVO prevents race conditions at the database level using atomic conditional updates and row-level locking:
+
+```sql
+-- Atomic conditional state change ensuring only one driver captures the ride
+UPDATE rides
+SET 
+  driver_id = :candidateDriverId,
+  status = 'ACCEPTED',
+  updated_at = NOW()
+WHERE id = :rideId
+  AND status = 'REQUESTED'
+  AND driver_id IS NULL;
+```
+
+If the rows affected count is `0`, the assignment transaction rolls back, and the driver offer loop continues to the next candidate without corrupting state.
+
+---
+
+## 5. High-Frequency Telemetry vs. Database Hygiene
+
+Driver GPS updates occur every 2–4 seconds per active vehicle:
+
+- **Hot Path (Real-Time Ingestion)**:
+  - Updates flow directly into **Redis GEO** for dispatch and ephemeral driver markers on passenger maps.
+  - Ephemeral pub/sub channels broadcast location deltas to assigned passengers.
+- **Cold Path (Trip History & Billing)**:
+  - Location pings are **not** written to PostgreSQL per second.
+  - Waypoints are down-sampled or buffered, writing only trip start, milestone turns, pickup, and dropoff breadcrumbs to PostgreSQL.
+  - Avoids write amplification and unnecessary table bloating.
+
+---
+
+## 6. Domain Event Outbox Architecture
+
+To ensure consistency between database mutations and asynchronous events (e.g., push notifications, payment processing, fraud analytics), ZYVO utilizes the **Transactional Outbox Pattern**:
+
+1. Business records and domain events are written within the **same** PostgreSQL transaction.
+2. An asynchronous dispatcher polls or receives WAL notifications to emit events through Redis Pub/Sub.
+3. Consumer workers process side-effects idempotently without risking partial failures during HTTP requests.

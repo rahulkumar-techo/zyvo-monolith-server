@@ -11,6 +11,9 @@ ZYVO adopts a **Modular Monolith** architecture:
 - **Strict Domain Boundaries**: Business modules (`auth`, `users`, `riders`, `vehicles`, `rides`, `dispatch`, `pricing`, `payments`, `wallets`, `notifications`, `ratings`, `admin`) are organized into discrete directories with dedicated routes, services, and repositories.
 - **Evolutionary Scalability**: Modules communicate in-process with clean interfaces, allowing high-throughput modules (e.g., dispatch or pricing) to be factored into independent microservices in the future without major architectural rewrites.
 
+> [!TIP]
+> For the deep-dive architectural design, real-time spatial dispatch pipeline, and race-safe concurrency models, see [**`Arc.md` (System Architecture & Concurrency Blueprint)**](Arc.md).
+
 ---
 
 ## Directory Structure
@@ -22,7 +25,7 @@ zyvo/
 │       ├── src/
 │       │   ├── app.ts                 # Fastify app factory
 │       │   ├── server.ts              # HTTP server & graceful shutdown
-│       │   ├── config/env.ts          # Zod-validated environment config
+│       │   ├── config/env.ts          # Pure TypeScript environment configuration
 │       │   ├── plugins/               # Fastify plugins (prisma, redis, security, swagger)
 │       │   ├── common/                # Shared errors, utils, and response contracts
 │       │   └── modules/               # Domain business modules
@@ -34,12 +37,18 @@ zyvo/
 │   │   └── src/index.ts
 │   └── shared/                        # Shared types, error classes, and constants
 │       └── src/
+├── document/                          # API and role integration documentation
+│   └── auth/                          # Authentication usage guides
+│       ├── passenger.md               # Passenger phone OTP flow & specs
+│       ├── rider.md                   # Rider & Driver authentication specs
+│       └── admin.md                   # Admin portal authentication & RBAC specs
 ├── infrastructure/
 │   └── compose.yaml                   # Local PostgreSQL & Redis services
 ├── .env.example                       # Template for environment configuration
 ├── pnpm-workspace.yaml                # pnpm monorepo workspace definition
 ├── turbo.json                         # Turborepo task pipeline configuration
 ├── tsconfig.base.json                 # Shared base TypeScript configuration
+├── Arc.md                             # Concurrency blueprint, Redis GEO dispatch & state machines
 └── AGENTS.md                          # Guidelines for future AI & human developers
 ```
 
@@ -130,10 +139,24 @@ The API server will start on `http://127.0.0.1:3000`.
 
 ## API Endpoints & Documentation
 
-- **Interactive Swagger UI**: [http://127.0.0.1:3000/docs](http://127.0.0.1:3000/docs)
-- **Public Liveness Probe**: `GET /health`
+- **Interactive Swagger UI**: [http://127.0.0.1:10000/docs](http://127.0.0.1:10000/docs) (or port `3000` in local dev)
+- **Root Health / Liveness Probe**: `GET /` and `GET /health`
 - **Dependency Readiness Probe**: `GET /ready` (verifies PostgreSQL and Redis health)
 - **API v1 Metadata**: `GET /api/v1`
+
+---
+
+## Authentication & Role API Guides
+
+Comprehensive API usage, request schemas, cURL examples, token life-cycle, and error codes are documented per actor under [`document/auth/`](document/auth/):
+
+| Actor / Role | Primary Auth Flow | Dedicated Documentation | Key Endpoints |
+| :--- | :--- | :--- | :--- |
+| **Passenger** | Phone OTP (Mobile First) | [**`document/auth/passenger.md`**](document/auth/passenger.md) | `POST /otp/request`, `POST /otp/verify`, `GET /me`, `POST /token/refresh`, `POST /logout` |
+| **Rider / Driver** | Phone OTP + Hardware Device Tracking | [**`document/auth/rider.md`**](document/auth/rider.md) | `POST /otp/verify` (with `deviceId`), `POST /register`, `GET /sessions`, `DELETE /sessions/:id` |
+| **Admin** | Email + Password (RBAC) | [**`document/auth/admin.md`**](document/auth/admin.md) | `POST /login`, `GET /me`, `GET /sessions`, `DELETE /sessions/:id`, `POST /logout-all` |
+
+---
 
 ### Standard Response Formats
 

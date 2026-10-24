@@ -62,6 +62,20 @@ describe('Health and Readiness Routes', () => {
     expect(typeof body.data.uptime).toBe('number');
   });
 
+  it('GET / and HEAD / return 200 for root cloud health checks', async () => {
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/',
+    });
+    expect(getRes.statusCode).toBe(200);
+
+    const headRes = await app.inject({
+      method: 'HEAD',
+      url: '/',
+    });
+    expect(headRes.statusCode).toBe(200);
+  });
+
   it('GET /api/v1 returns 200 and API metadata', async () => {
     const res = await app.inject({
       method: 'GET',

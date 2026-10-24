@@ -3,14 +3,30 @@ import { healthService } from './health.service.js';
 import { sendSuccess } from '../../common/utils/response.js';
 
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/health', {
+  fastify.route({
+    method: ['GET', 'HEAD'],
+    url: '/',
+    schema: {
+      description: 'Root service liveness probe',
+      tags: ['Health'],
+    },
+    handler: async (_request, reply) => {
+      const data = healthService.getLiveness();
+      return sendSuccess(reply, data, 200);
+    },
+  });
+
+  fastify.route({
+    method: ['GET', 'HEAD'],
+    url: '/health',
     schema: {
       description: 'Liveness probe to check if the API process is alive',
       tags: ['Health'],
     },
-  }, async (_request, reply) => {
-    const data = healthService.getLiveness();
-    return sendSuccess(reply, data, 200);
+    handler: async (_request, reply) => {
+      const data = healthService.getLiveness();
+      return sendSuccess(reply, data, 200);
+    },
   });
 
   fastify.get('/ready', {
